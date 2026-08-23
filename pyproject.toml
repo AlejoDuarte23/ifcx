@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ifcx"
+version = "0.1.0"
+description = "Python-first IFC viewer using IFClite geometry and a bundled Three.js frontend"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "src/ifcx/static/licenses/*.txt"]
+authors = [{ name = "IFCX Contributors" }]
+keywords = ["ifc", "bim", "three.js", "viewer", "ifclite", "viktor"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+  "ifclite-geom>=4.4.0,<6",
+  "ifcx-core @ git+https://github.com/AlejoDuarte23/ifcx-core.git@first-draft",
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.12.0",
+  "ty>=0.0.1a20",
+]
+test = ["pytest>=8.0"]
+viktor = ["viktor>=14"]
+
+[project.scripts]
+ifcx = "ifcx.cli:main"
+ifcx-build-frontend = "ifcx.build_frontend:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ifcx = [
+  "static/*.js",
+  "static/*.css",
+  "static/*.map",
+  "static/licenses/*.txt",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["integration: tests requiring an external IFC model corpus"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ty.src]
+include = ["src", "scripts", "tests"]
