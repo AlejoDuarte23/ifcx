@@ -141,11 +141,13 @@ def test_payload_contains_geometry_and_properties():
         spatial_doc=spatial,
         relationships_doc=relationships,
         materials_doc=materials,
+        display_units={"LENGTHUNIT": "mm", "AREAUNIT": "m²"},
     )
     raw, metadata, sections = unpack_container(payload.compressed)
 
     assert payload.raw_size == len(raw)
     assert metadata["model"]["element_count"] == 1
+    assert metadata["model"]["display_units"] == {"AREAUNIT": "m²", "LENGTHUNIT": "mm"}
     assert metadata["model"]["world_origin"] == [1.0, 0.5, 0.0]
     assert metadata["spatial"]["roots"][0]["children"][0]["elements"] == [42]
     references = metadata["references"]

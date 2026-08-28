@@ -27,6 +27,36 @@ const SEMANTIC_HELPER_TYPES = /* @__PURE__ */ new Set([
   "IfcOpeningElement",
   "IfcVirtualElement"
 ]);
+const MEASURE_UNIT_TYPES = /* @__PURE__ */ new Map([
+  ["IFCLENGTHMEASURE", "LENGTHUNIT"],
+  ["IFCNONNEGATIVELENGTHMEASURE", "LENGTHUNIT"],
+  ["IFCPOSITIVELENGTHMEASURE", "LENGTHUNIT"],
+  ["IFCAREAMEASURE", "AREAUNIT"],
+  ["IFCVOLUMEMEASURE", "VOLUMEUNIT"],
+  ["IFCPLANEANGLEMEASURE", "PLANEANGLEUNIT"],
+  ["IFCPOSITIVEPLANEANGLEMEASURE", "PLANEANGLEUNIT"],
+  ["IFCMASSMEASURE", "MASSUNIT"],
+  ["IFCTIMEMEASURE", "TIMEUNIT"],
+  ["IFCTHERMODYNAMICTEMPERATUREMEASURE", "THERMODYNAMICTEMPERATUREUNIT"],
+  ["IFCELECTRICCURRENTMEASURE", "ELECTRICCURRENTUNIT"],
+  ["IFCELECTRICVOLTAGEMEASURE", "ELECTRICVOLTAGEUNIT"],
+  ["IFCPOWERMEASURE", "POWERUNIT"],
+  ["IFCPRESSUREMEASURE", "PRESSUREUNIT"],
+  ["IFCFREQUENCYMEASURE", "FREQUENCYUNIT"],
+  ["IFCLUMINOUSFLUXMEASURE", "LUMINOUSFLUXUNIT"],
+  ["IFCILLUMINANCEMEASURE", "ILLUMINANCEUNIT"],
+  ["IFCMONETARYMEASURE", "MONETARYUNIT"]
+]);
+const QUANTITY_UNIT_TYPES = /* @__PURE__ */ new Map([
+  ["LENGTH", "LENGTHUNIT"],
+  ["AREA", "AREAUNIT"],
+  ["VOLUME", "VOLUMEUNIT"],
+  ["WEIGHT", "MASSUNIT"],
+  ["MASS", "MASSUNIT"],
+  ["TIME", "TIMEUNIT"]
+]);
+const INTEGER_VALUE_TYPES = /* @__PURE__ */ new Set(["IFCINTEGER", "IFCCOUNTMEASURE"]);
+const NUMERIC_VALUE_TYPES = /* @__PURE__ */ new Set(["IFCREAL", "IFCNUMBER", ...MEASURE_UNIT_TYPES.keys()]);
 if (!CONFIG) {
   throw new Error("IFClite viewer configuration is missing.");
 }
@@ -556,7 +586,7 @@ function renderProperties(element) {
   addDefinition(table, "Global ID", element.global_id);
   addDefinition(table, "ObjectType", element.object_type);
   for (const item of element.attributes || []) {
-    addDefinition(table, item.name, formatPropertyValue(item.value));
+    addDefinition(table, item.name, formatPropertyValue(item.value, item.value_type));
   }
   identity.append(table);
   fragment.append(identity);
@@ -682,7 +712,9 @@ function formatMaterialPart(part) {
   const thickness = Number(part.thickness);
   const details = [];
   if (category) details.push(category);
-  if (Number.isFinite(thickness)) details.push(formatPropertyValue(thickness));
+  if (Number.isFinite(thickness)) {
+    details.push(formatPropertyValue(thickness, "IFCLENGTHMEASURE"));
+  }
   return details.length ? `${name} (${details.join(" \xB7 ")})` : name;
 }
 function appendMaterialPartsSection(parent, title, parts) {
@@ -706,7 +738,11 @@ function appendSetSection(parent, title, sets, itemKey) {
     inner.append(node("summary", null, set.name || "Unnamed set"));
     const table = node("dl", "property-list");
     for (const item of set[itemKey] || []) {
-      addDefinition(table, item.name, formatPropertyValue(item.value));
+      addDefinition(
+        table,
+        item.name,
+        formatPropertyValue(item.value, item.value_type, item.kind)
+      );
     }
     inner.append(table);
     outer.append(inner);
@@ -1283,12 +1319,28 @@ function node(tag, className, text) {
   if (text !== void 0 && text !== null) element.textContent = String(text);
   return element;
 }
-function formatPropertyValue(value) {
+function formatPropertyValue(value, valueType = null, quantityKind = null) {
   if (value === null || value === void 0) return "\u2014";
-  return typeof value === "number" ? formatNumber(value) : String(value);
+  const normalizedType = String(valueType || "").toUpperCase();
+  const normalizedKind = String(quantityKind || "").toUpperCase();
+  const isNumeric = typeof value === "number" || NUMERIC_VALUE_TYPES.has(normalizedType) || INTEGER_VALUE_TYPES.has(normalizedType) || QUANTITY_UNIT_TYPES.has(normalizedKind) || normalizedKind === "COUNT";
+  if (!isNumeric) return String(value);
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(value);
+  const integer = INTEGER_VALUE_TYPES.has(normalizedType) || normalizedKind === "COUNT";
+  const formatted = integer ? formatInteger(numeric) : formatNumber(numeric);
+  const unitType = MEASURE_UNIT_TYPES.get(normalizedType) || QUANTITY_UNIT_TYPES.get(normalizedKind);
+  const symbol = unitType ? state.metadata?.model?.display_units?.[unitType] : null;
+  if (!symbol) return formatted;
+  const separator = symbol === "\xB0" || symbol === "%" ? "" : " ";
+  return `${formatted}${separator}${symbol}`;
 }
 function formatNumber(value) {
-  return new Intl.NumberFormat(void 0, { maximumFractionDigits: 6 }).format(value);
+  const numeric = Number(value);
+  if (numeric !== 0 && Math.abs(numeric) < 1e-3) {
+    return new Intl.NumberFormat(void 0, { maximumSignificantDigits: 3 }).format(numeric);
+  }
+  return new Intl.NumberFormat(void 0, { maximumFractionDigits: 3 }).format(numeric);
 }
 function formatInteger(value) {
   return new Intl.NumberFormat(void 0, { maximumFractionDigits: 0 }).format(Number(value) || 0);
