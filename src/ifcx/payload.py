@@ -11,6 +11,8 @@ from typing import Any, Iterable, Literal, Mapping, Sequence, cast
 
 import numpy as np
 
+from .units import extract_project_units
+
 MAGIC = b"IFCVIEW1"
 SECTION_ORDER = (
     "opaque_positions",
@@ -135,6 +137,7 @@ def build_payload(
         spatial_doc=core_doc.get("spatial"),
         relationships_doc=core_doc.get("relationships"),
         materials_doc=core_doc.get("materials"),
+        display_units=extract_project_units(ifc_bytes),
         quality=quality,
         initial_colors=initial_colors,
         hidden_ids=hidden_ids,
@@ -149,6 +152,7 @@ def build_payload_from_documents(
     spatial_doc: Mapping[str, Any] | None = None,
     relationships_doc: Mapping[str, Any] | None = None,
     materials_doc: Mapping[str, Any] | None = None,
+    display_units: Mapping[str, str] | None = None,
     quality: str = "medium",
     initial_colors: Mapping[int, str | Sequence[int | float]] | None = None,
     hidden_ids: Iterable[int] = (),
@@ -318,6 +322,10 @@ def build_payload_from_documents(
             *_finite_list(world_max - origin),
         ],
         "units": str(geometry_doc.get("units") or "m"),
+        "display_units": {
+            str(unit_type).upper(): str(symbol)
+            for unit_type, symbol in (display_units or {}).items()
+        },
         "up_axis": str(geometry_doc.get("up_axis") or "Z"),
         "length_unit_scale": _finite_number(entity_doc.get("length_unit_scale")),
         "plane_angle_to_radians": _finite_number(entity_doc.get("plane_angle_to_radians")),
