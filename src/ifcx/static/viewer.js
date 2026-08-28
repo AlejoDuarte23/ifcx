@@ -21,6 +21,12 @@ const SECTION_NAMES = [
   "transparent_colors",
   "transparent_indices"
 ];
+const SEMANTIC_HELPER_TYPES = /* @__PURE__ */ new Set([
+  "IfcSpace",
+  "IfcSpatialZone",
+  "IfcOpeningElement",
+  "IfcVirtualElement"
+]);
 if (!CONFIG) {
   throw new Error("IFClite viewer configuration is missing.");
 }
@@ -40,6 +46,7 @@ const state = {
   rangesByBatch: /* @__PURE__ */ new Map(),
   customColors: /* @__PURE__ */ new Map(),
   hidden: /* @__PURE__ */ new Set(),
+  defaultHidden: /* @__PURE__ */ new Set(),
   selectedId: null,
   selectionReady: false,
   modelOpenTypes: /* @__PURE__ */ new Set(),
@@ -58,7 +65,6 @@ const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: true,
   alpha: false,
-  logarithmicDepthBuffer: true,
   powerPreference: "high-performance",
   preserveDrawingBuffer: false
 });
@@ -139,6 +145,7 @@ async function main() {
   renderModelTree();
   buildBatch("opaque", parsed.sections, false);
   buildBatch("transparent", parsed.sections, true);
+  refreshAllColors();
   buildGrid();
   fitModel();
   resize();
@@ -221,22 +228,87 @@ function buildBatch(name, sections, transparent) {
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
-  const material = new THREE.MeshStandardMaterial({
+  const material = transparent ? new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: state.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+    transparent: true,
+    depthFunc: THREE.EqualDepth,
+    depthWrite: false,
+    alphaHash: false,
+    alphaTest: 0.01
+  }) : new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.78,
     metalness: 0.02,
     side: state.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
-    transparent,
-    depthWrite: !transparent,
+    depthFunc: THREE.LessDepth,
+    depthWrite: true,
     alphaHash: false,
     alphaTest: 0.01
   });
   material.forceSinglePass = transparent;
-  const mesh = new THREE.Mesh(geometry, material);
+  const pickMaterial = transparent ? new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide }) : material;
+  const mesh = new THREE.Mesh(geometry, pickMaterial);
   mesh.name = `${name} IFC geometry`;
   mesh.userData.batchName = name;
   modelGroup.add(mesh);
-  state.batches.set(name, { mesh, geometry, material, transparent });
+  const transparentRender = transparent ? buildTransparentElementMeshes(positions, normals, colors, indices, material) : { renderMeshes: /* @__PURE__ */ new Map(), depthMaterial: null };
+  state.batches.set(name, {
+    mesh,
+    geometry,
+    material,
+    transparent,
+    renderMeshes: transparentRender.renderMeshes,
+    depthMaterial: transparentRender.depthMaterial
+  });
+}
+function buildTransparentElementMeshes(positions, normals, colors, indices, material) {
+  const renderMeshes = /* @__PURE__ */ new Map();
+  const depthMaterial = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    alphaTest: 0.01,
+    colorWrite: false,
+    depthWrite: true,
+    depthTest: true,
+    side: state.doubleSided ? THREE.DoubleSide : THREE.FrontSide
+  });
+  for (const element of state.rangesByBatch.get("transparent") || []) {
+    const vertexStart = element.vertex_start;
+    const vertexEnd = vertexStart + element.vertex_count;
+    const indexStart = element.triangle_start * 3;
+    const indexEnd = indexStart + element.triangle_count * 3;
+    const elementIndices = indices.slice(indexStart, indexEnd);
+    for (let index = 0; index < elementIndices.length; index += 1) {
+      elementIndices[index] -= vertexStart;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(positions.subarray(vertexStart * 3, vertexEnd * 3), 3)
+    );
+    geometry.setAttribute(
+      "normal",
+      new THREE.BufferAttribute(normals.subarray(vertexStart * 3, vertexEnd * 3), 3)
+    );
+    geometry.setAttribute(
+      "color",
+      new THREE.BufferAttribute(colors.subarray(vertexStart * 4, vertexEnd * 4), 4, true)
+    );
+    geometry.setIndex(new THREE.BufferAttribute(elementIndices, 1));
+    geometry.computeBoundingSphere();
+    const depthMesh = new THREE.Mesh(geometry, depthMaterial);
+    depthMesh.name = `${element.ifc_type || "IFC"} #${element.id} depth`;
+    depthMesh.renderOrder = 1;
+    modelGroup.add(depthMesh);
+    const colorMesh = new THREE.Mesh(geometry, material);
+    colorMesh.name = `${element.ifc_type || "IFC"} #${element.id}`;
+    colorMesh.userData.batchName = "transparent";
+    colorMesh.userData.elementId = element.id;
+    colorMesh.renderOrder = 2;
+    modelGroup.add(colorMesh);
+    renderMeshes.set(element.id, colorMesh);
+  }
+  return { renderMeshes, depthMaterial };
 }
 function indexElements(elements) {
   const ranges = /* @__PURE__ */ new Map();
@@ -251,8 +323,9 @@ function indexElements(elements) {
     } else if (Array.isArray(element.base_color)) {
       state.customColors.set(id, element.base_color.slice());
     }
-    if (Array.isArray(element.display_color) && (element.display_color[3] ?? 255) === 0) {
+    if (SEMANTIC_HELPER_TYPES.has(element.ifc_type) || Array.isArray(element.display_color) && (element.display_color[3] ?? 255) === 0) {
       state.hidden.add(id);
+      state.defaultHidden.add(id);
     }
   }
   for (const [batch, items] of ranges) {
@@ -370,7 +443,8 @@ function focusModelElements(elements, focusKey) {
     showAll();
     return;
   }
-  state.hidden.clear();
+  state.hidden = new Set(state.defaultHidden);
+  for (const element of elements) state.hidden.delete(element.id);
   state.modelFocusIds = new Set(elements.map((element) => element.id));
   state.modelFocusKey = focusKey;
   setFocusMaterialMode(true);
@@ -700,7 +774,7 @@ function isolate(expressIds) {
 }
 function showAll() {
   clearModelFocus();
-  state.hidden.clear();
+  state.hidden = new Set(state.defaultHidden);
   refreshAllColors();
   refreshModelTree();
   invalidate();
@@ -714,7 +788,7 @@ function setFocusMaterialMode(enabled) {
   for (const batch of state.batches.values()) {
     batch.material.transparent = enabled || batch.transparent;
     batch.material.alphaHash = false;
-    batch.material.depthWrite = batch.transparent ? false : true;
+    batch.material.depthWrite = true;
     batch.material.needsUpdate = true;
   }
 }
@@ -764,11 +838,10 @@ function updateSelectionOverlay() {
       color: 16765774,
       transparent: true,
       opacity: 0.16,
+      depthTest: true,
+      depthFunc: THREE.LessEqualDepth,
       depthWrite: false,
-      side: THREE.DoubleSide,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -1
+      side: THREE.FrontSide
     })
   );
   fill.renderOrder = 10;
@@ -777,7 +850,7 @@ function updateSelectionOverlay() {
     new THREE.EdgesGeometry(geometry, 35),
     new THREE.LineBasicMaterial({
       color: 16758528,
-      depthTest: true,
+      depthTest: false,
       depthWrite: false,
       linewidth: 2,
       toneMapped: false
@@ -811,6 +884,8 @@ function refreshElementColors(expressIds) {
     range.start = Math.min(range.start, componentStart);
     range.end = Math.max(range.end, componentEnd);
     dirty.set(element.batch, range);
+    const renderMesh = batch.renderMeshes?.get(id);
+    if (renderMesh) renderMesh.geometry.getAttribute("color").needsUpdate = true;
   }
   for (const [batchName, range] of dirty) {
     const attribute = state.batches.get(batchName).geometry.getAttribute("color");
@@ -874,9 +949,13 @@ function toggleGrid() {
 }
 function setDoubleSided(enabled) {
   state.doubleSided = Boolean(enabled);
-  for (const { material } of state.batches.values()) {
+  for (const { material, depthMaterial } of state.batches.values()) {
     material.side = state.doubleSided ? THREE.DoubleSide : THREE.FrontSide;
     material.needsUpdate = true;
+    if (depthMaterial) {
+      depthMaterial.side = material.side;
+      depthMaterial.needsUpdate = true;
+    }
   }
   setActionPressed("toggle-double-side", state.doubleSided);
   invalidate();
