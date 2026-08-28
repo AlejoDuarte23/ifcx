@@ -1,113 +1,129 @@
-import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   acceleratedRaycast,
   computeBoundsTree,
   disposeBoundsTree,
-  CENTER
-} from "three-mesh-bvh";
+  CENTER,
+} from 'three-mesh-bvh';
+
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
-const CONFIG = globalThis.__IFCLITE_VIEWER_CONFIG__;
-const MAGIC = "IFCVIEW1";
+
+const CONFIG = (globalThis as any).__IFCLITE_VIEWER_CONFIG__;
+const MAGIC = 'IFCVIEW1';
 const SECTION_NAMES = [
-  "opaque_positions",
-  "opaque_normals",
-  "opaque_colors",
-  "opaque_indices",
-  "transparent_positions",
-  "transparent_normals",
-  "transparent_colors",
-  "transparent_indices"
+  'opaque_positions',
+  'opaque_normals',
+  'opaque_colors',
+  'opaque_indices',
+  'transparent_positions',
+  'transparent_normals',
+  'transparent_colors',
+  'transparent_indices',
 ];
 if (!CONFIG) {
-  throw new Error("IFClite viewer configuration is missing.");
+  throw new Error('IFClite viewer configuration is missing.');
 }
-const root = requiredElement("ifcx-root");
-const canvas = requiredElement("ifcx-canvas");
-const statusNode = requiredElement("ifcx-status");
-const panel = requiredElement("ifcx-panel");
-const panelContent = requiredElement("panel-content");
-const modelPanel = requiredElement("ifcx-model-panel");
-const modelSearch = requiredElement("ifcx-model-search");
-const modelTree = requiredElement("ifcx-model-tree");
-const contextMenu = requiredElement("ifcx-context-menu");
+
+const root = requiredElement<HTMLElement>('ifcx-root');
+const canvas = requiredElement<HTMLCanvasElement>('ifcx-canvas');
+const statusNode = requiredElement<HTMLElement>('ifcx-status');
+const panel = requiredElement<HTMLElement>('ifcx-panel');
+const panelContent = requiredElement<HTMLElement>('panel-content');
+const modelPanel = requiredElement<HTMLElement>('ifcx-model-panel');
+const modelSearch = requiredElement<HTMLInputElement>('ifcx-model-search');
+const modelTree = requiredElement<HTMLElement>('ifcx-model-tree');
+const contextMenu = requiredElement<HTMLElement>('ifcx-context-menu');
+
 const state = {
   metadata: null,
-  batches: /* @__PURE__ */ new Map(),
-  elementsById: /* @__PURE__ */ new Map(),
-  rangesByBatch: /* @__PURE__ */ new Map(),
-  customColors: /* @__PURE__ */ new Map(),
-  hidden: /* @__PURE__ */ new Set(),
+  batches: new Map(),
+  elementsById: new Map(),
+  rangesByBatch: new Map(),
+  customColors: new Map(),
+  hidden: new Set(),
   selectedId: null,
   selectionReady: false,
-  modelOpenTypes: /* @__PURE__ */ new Set(),
-  modelClosedGroups: /* @__PURE__ */ new Set(),
+  modelOpenTypes: new Set(),
+  modelClosedGroups: new Set(),
   modelFocusIds: null,
   modelFocusKey: null,
   gridVisible: true,
-  doubleSided: true
+  doubleSided: true,
 };
-setStatus("Loading model\u2026");
+
+setStatus('Loading model…');
+
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(16251130);
-const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1e6);
+scene.background = new THREE.Color(0xf7f8fa);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000000);
 camera.up.set(0, 0, 1);
+
 const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: true,
   alpha: false,
   logarithmicDepthBuffer: true,
-  powerPreference: "high-performance",
-  preserveDrawingBuffer: false
+  powerPreference: 'high-performance',
+  preserveDrawingBuffer: false,
 });
 renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 1.75));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
+
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = false;
 controls.screenSpacePanning = true;
 controls.zoomToCursor = true;
-controls.addEventListener("change", invalidate);
-scene.add(new THREE.HemisphereLight(16777215, 3884628, 2.2));
-const sun = new THREE.DirectionalLight(16777215, 2.6);
+(controls as any).addEventListener('change', invalidate);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x3b4654, 2.2));
+const sun = new THREE.DirectionalLight(0xffffff, 2.6);
 sun.position.set(7, -10, 14);
 scene.add(sun);
+
 const modelGroup = new THREE.Group();
-modelGroup.name = "IFC model";
+modelGroup.name = 'IFC model';
 scene.add(modelGroup);
 const selectionGroup = new THREE.Group();
-selectionGroup.name = "IFC selection";
+selectionGroup.name = 'IFC selection';
 scene.add(selectionGroup);
+
 let grid = null;
 let renderQueued = false;
 let pointerDown = null;
 const raycaster = new THREE.Raycaster();
 raycaster.firstHitOnly = true;
 const pointer = new THREE.Vector2();
+
 const resizeObserver = new ResizeObserver(resize);
 resizeObserver.observe(root);
-for (const button of document.querySelectorAll("[data-action]")) {
-  button.addEventListener("click", () => runAction(button.dataset.action));
+
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-action]')) {
+  button.addEventListener('click', () => runAction(button.dataset.action));
 }
-for (const button of contextMenu.querySelectorAll("[data-context-action]")) {
-  button.addEventListener("click", () => runContextAction(button.dataset.contextAction));
+for (const button of contextMenu.querySelectorAll<HTMLButtonElement>('[data-context-action]')) {
+  button.addEventListener('click', () => runContextAction(button.dataset.contextAction));
 }
+
 let panelDrag = null;
-for (const header of document.querySelectorAll(".panel-header")) {
-  header.addEventListener("pointerdown", startPanelDrag);
-  header.addEventListener("pointermove", movePanelDrag);
-  header.addEventListener("pointerup", endPanelDrag);
-  header.addEventListener("pointercancel", endPanelDrag);
-  header.addEventListener("dblclick", resetPanelPosition);
+for (const header of document.querySelectorAll('.panel-header')) {
+  header.addEventListener('pointerdown', startPanelDrag);
+  header.addEventListener('pointermove', movePanelDrag);
+  header.addEventListener('pointerup', endPanelDrag);
+  header.addEventListener('pointercancel', endPanelDrag);
+  header.addEventListener('dblclick', resetPanelPosition);
 }
-modelSearch.addEventListener("input", () => renderModelTree(modelSearch.value));
-renderer.domElement.addEventListener("pointerdown", (event) => {
+modelSearch.addEventListener('input', () => renderModelTree(modelSearch.value));
+
+renderer.domElement.addEventListener('pointerdown', (event) => {
   pointerDown = { x: event.clientX, y: event.clientY, button: event.button };
 });
-renderer.domElement.addEventListener("pointerup", (event) => {
+renderer.domElement.addEventListener('pointerup', (event) => {
   if (!pointerDown || pointerDown.button !== 0) return;
   const distance = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
   pointerDown = null;
@@ -116,72 +132,83 @@ renderer.domElement.addEventListener("pointerup", (event) => {
     else pick(event.clientX, event.clientY);
   }
 });
-renderer.domElement.addEventListener("dblclick", () => fitSelection());
-renderer.domElement.addEventListener("contextmenu", openContextMenu);
-globalThis.addEventListener("pointerdown", (event) => {
+renderer.domElement.addEventListener('dblclick', () => fitSelection());
+renderer.domElement.addEventListener('contextmenu', openContextMenu);
+globalThis.addEventListener('pointerdown', (event) => {
   if (!contextMenu.hidden && event.target instanceof Node && !contextMenu.contains(event.target)) closeContextMenu();
 });
-globalThis.addEventListener("blur", closeContextMenu);
-globalThis.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeContextMenu();
+globalThis.addEventListener('blur', closeContextMenu);
+globalThis.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeContextMenu();
 });
+
 main().catch((error) => {
   console.error(error);
   setStatus(error instanceof Error ? error.message : String(error), true);
 });
+
 async function main() {
   const compressed = await loadCompressedPayload(CONFIG.payload);
-  setStatus("Unpacking model\u2026");
+  setStatus('Unpacking model…');
   const raw = await gunzip(compressed);
   const parsed = parseContainer(raw);
   state.metadata = parsed.metadata;
   indexElements(parsed.metadata.elements || []);
   renderModelTree();
-  buildBatch("opaque", parsed.sections, false);
-  buildBatch("transparent", parsed.sections, true);
+
+  buildBatch('opaque', parsed.sections, false);
+  buildBatch('transparent', parsed.sections, true);
   buildGrid();
   fitModel();
   resize();
   invalidate();
+
   const model = parsed.metadata.model || {};
   const triangleCount = [...state.batches.values()].reduce(
     (sum, batch) => sum + batch.geometry.index.count / 3,
-    0
+    0,
   );
   setStatus(
-    `${formatInteger(model.element_count || state.elementsById.size)} elements \xB7 ${formatInteger(triangleCount)} triangles`
+    `${formatInteger(model.element_count || state.elementsById.size)} elements · ` +
+      `${formatInteger(triangleCount)} triangles`,
   );
-  globalThis.IFCViewer = createPublicApi();
+
+  (globalThis as any).IFCViewer = createPublicApi();
   globalThis.dispatchEvent(
-    new CustomEvent("ifcviewer:ready", { detail: { model: parsed.metadata.model } })
+    new CustomEvent('ifcviewer:ready', { detail: { model: parsed.metadata.model } }),
   );
+
   await buildSelectionIndex();
 }
+
 async function loadCompressedPayload(spec) {
-  if (!spec || !spec.mode) throw new Error("Viewer payload configuration is invalid.");
-  if (spec.mode === "inline") {
-    const node2 = document.getElementById(spec.elementId);
-    if (!node2) throw new Error("Embedded model payload was not found.");
-    return base64ToBytes(node2.textContent.trim());
+  if (!spec || !spec.mode) throw new Error('Viewer payload configuration is invalid.');
+  if (spec.mode === 'inline') {
+    const node = document.getElementById(spec.elementId);
+    if (!node) throw new Error('Embedded model payload was not found.');
+    return base64ToBytes(node.textContent.trim());
   }
-  if (spec.mode === "url") {
-    const response = await fetch(spec.url, { cache: "force-cache" });
+  if (spec.mode === 'url') {
+    const response = await fetch(spec.url, { cache: 'force-cache' });
     if (!response.ok) throw new Error(`Model download failed with HTTP ${response.status}.`);
     return new Uint8Array(await response.arrayBuffer());
   }
   throw new Error(`Unsupported payload mode: ${spec.mode}`);
 }
+
 async function gunzip(bytes) {
-  if (typeof DecompressionStream !== "function") {
-    throw new Error("This browser does not support gzip decompression streams.");
+  if (typeof DecompressionStream !== 'function') {
+    throw new Error('This browser does not support gzip decompression streams.');
   }
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
   return new Response(stream).arrayBuffer();
 }
+
 function parseContainer(buffer) {
   const bytes = new Uint8Array(buffer);
   const magic = new TextDecoder().decode(bytes.subarray(0, 8));
-  if (magic !== MAGIC) throw new Error("The model payload has an unknown format.");
+  if (magic !== MAGIC) throw new Error('The model payload has an unknown format.');
+
   const view = new DataView(buffer);
   let offset = 8;
   const metadataLength = view.getUint32(offset, true);
@@ -189,13 +216,15 @@ function parseContainer(buffer) {
   const metadataBytes = bytes.subarray(offset, offset + metadataLength);
   const metadata = JSON.parse(new TextDecoder().decode(metadataBytes));
   offset = align4(offset + metadataLength);
-  const rawSections = {};
+
+  const rawSections: Record<string, { offset: number; length: number }> = {};
   for (const name of SECTION_NAMES) {
     const length = view.getUint32(offset, true);
     offset += 4;
     rawSections[name] = { offset, length };
     offset = align4(offset + length);
   }
+
   const sections = {
     opaque_positions: float32View(buffer, rawSections.opaque_positions),
     opaque_normals: float32View(buffer, rawSections.opaque_normals),
@@ -204,23 +233,26 @@ function parseContainer(buffer) {
     transparent_positions: float32View(buffer, rawSections.transparent_positions),
     transparent_normals: float32View(buffer, rawSections.transparent_normals),
     transparent_colors: uint8View(buffer, rawSections.transparent_colors),
-    transparent_indices: uint32View(buffer, rawSections.transparent_indices)
+    transparent_indices: uint32View(buffer, rawSections.transparent_indices),
   };
   return { metadata, sections };
 }
+
 function buildBatch(name, sections, transparent) {
   const positions = sections[`${name}_positions`];
   const normals = sections[`${name}_normals`];
   const colors = sections[`${name}_colors`];
   const indices = sections[`${name}_indices`];
   if (!positions.length || !indices.length) return;
+
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 4, true));
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 4, true));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
+
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.78,
@@ -229,7 +261,7 @@ function buildBatch(name, sections, transparent) {
     transparent,
     depthWrite: !transparent,
     alphaHash: false,
-    alphaTest: 0.01
+    alphaTest: 0.01,
   });
   material.forceSinglePass = transparent;
   const mesh = new THREE.Mesh(geometry, material);
@@ -238,8 +270,9 @@ function buildBatch(name, sections, transparent) {
   modelGroup.add(mesh);
   state.batches.set(name, { mesh, geometry, material, transparent });
 }
+
 function indexElements(elements) {
-  const ranges = /* @__PURE__ */ new Map();
+  const ranges = new Map();
   for (const element of elements) {
     const id = Number(element.id);
     element.id = id;
@@ -260,16 +293,18 @@ function indexElements(elements) {
     state.rangesByBatch.set(batch, items);
   }
 }
-function renderModelTree(query = "") {
+
+function renderModelTree(query = '') {
   const needle = String(query).trim().toLocaleLowerCase();
-  const groups = /* @__PURE__ */ new Map();
+  const groups = new Map();
   for (const element of state.elementsById.values()) {
-    const searchable = `${element.ifc_type || ""} ${element.name || ""} ${element.id}`.toLocaleLowerCase();
+    const searchable = `${element.ifc_type || ''} ${element.name || ''} ${element.id}`.toLocaleLowerCase();
     if (needle && !searchable.includes(needle)) continue;
-    const type = element.ifc_type || "IfcProduct";
+    const type = element.ifc_type || 'IfcProduct';
     if (!groups.has(type)) groups.set(type, []);
     groups.get(type).push(element);
   }
+
   const fragment = document.createDocumentFragment();
   for (const [type, elements] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
     fragment.append(
@@ -279,26 +314,29 @@ function renderModelTree(query = "") {
         focusLabel: formatIfcType(type),
         elements,
         depth: 0,
-        defaultOpen: Boolean(needle)
-      })
+        defaultOpen: Boolean(needle),
+      }),
     );
   }
-  if (!fragment.childNodes.length) fragment.append(node("p", "model-tree-empty", "No elements found."));
+
+  if (!fragment.childNodes.length) fragment.append(node('p', 'model-tree-empty', 'No elements found.'));
   modelTree.replaceChildren(fragment);
 }
+
 function renderElementGroup({ groupKey, label, focusLabel, elements, depth, defaultOpen = false }) {
-  const details = document.createElement("details");
-  details.className = "model-group element-type-group";
+  const details = document.createElement('details');
+  details.className = 'model-group element-type-group';
   details.open = groupIsOpen(groupKey, defaultOpen);
-  details.classList.toggle("focused", state.modelFocusKey === groupKey);
-  const summary = document.createElement("summary");
-  summary.style.setProperty("--tree-depth", String(depth));
+  details.classList.toggle('focused', state.modelFocusKey === groupKey);
+  const summary = document.createElement('summary');
+  summary.style.setProperty('--tree-depth', String(depth));
   summary.append(
-    node("span", "model-group-label", label),
-    focusButton(elements, groupKey, focusLabel)
+    node('span', 'model-group-label', label),
+    focusButton(elements, groupKey, focusLabel),
   );
   details.append(summary);
-  const children = node("div", "model-group-items");
+
+  const children = node('div', 'model-group-items');
   const populate = () => {
     if (children.childElementCount) return;
     for (const element of elements) children.append(modelElementRow(element, depth + 1));
@@ -308,24 +346,27 @@ function renderElementGroup({ groupKey, label, focusLabel, elements, depth, defa
   details.append(children);
   return details;
 }
+
 function connectGroupToggle({ details, summary, populate, groupKey, elements }) {
-  summary.addEventListener("click", (event) => {
-    if (event.target.closest(".visibility-button")) return;
+  summary.addEventListener('click', (event) => {
+    if (event.target.closest('.visibility-button')) return;
     event.preventDefault();
     details.open = !details.open;
     rememberGroupState(groupKey, details.open);
     if (details.open) populate();
     focusModelElements(elements, groupKey);
   });
-  details.addEventListener("toggle", () => {
+  details.addEventListener('toggle', () => {
     rememberGroupState(groupKey, details.open);
     if (details.open) populate();
   });
 }
+
 function groupIsOpen(groupKey, defaultOpen = false) {
   if (state.modelClosedGroups.has(groupKey)) return false;
   return state.modelOpenTypes.has(groupKey) || defaultOpen;
 }
+
 function rememberGroupState(groupKey, open) {
   if (open) {
     state.modelOpenTypes.add(groupKey);
@@ -335,36 +376,40 @@ function rememberGroupState(groupKey, open) {
     state.modelClosedGroups.add(groupKey);
   }
 }
+
+
 function modelElementRow(element, depth = 1) {
-  const row = node("div", "model-element");
-  row.style.setProperty("--tree-depth", String(depth));
+  const row = node('div', 'model-element');
+  row.style.setProperty('--tree-depth', String(depth));
   const focusKey = `element:${element.id}`;
-  if (state.modelFocusKey === focusKey) row.classList.add("selected");
-  if (state.hidden.has(element.id)) row.classList.add("hidden");
-  const selectButton = node("button", "model-element-select", element.name || `${formatIfcType(element.ifc_type)} #${element.id}`);
-  selectButton.type = "button";
+  if (state.modelFocusKey === focusKey) row.classList.add('selected');
+  if (state.hidden.has(element.id)) row.classList.add('hidden');
+  const selectButton = node('button', 'model-element-select', element.name || `${formatIfcType(element.ifc_type)} #${element.id}`);
+  selectButton.type = 'button';
   selectButton.title = selectButton.textContent;
-  selectButton.addEventListener("click", () => {
+  selectButton.addEventListener('click', () => {
     focusModelElements([element], focusKey);
   });
   row.append(selectButton, focusButton([element], focusKey, selectButton.textContent));
   return row;
 }
+
 function focusButton(elements, focusKey, label) {
-  const button = node("button", "visibility-button");
-  button.type = "button";
+  const button = node('button', 'visibility-button');
+  button.type = 'button';
   const active = state.modelFocusKey === focusKey;
-  button.classList.toggle("active", active);
-  button.setAttribute("aria-pressed", String(active));
-  button.setAttribute("aria-label", active ? `Show all model after ${label}` : `Focus ${label}`);
+  button.classList.toggle('active', active);
+  button.setAttribute('aria-pressed', String(active));
+  button.setAttribute('aria-label', active ? `Show all model after ${label}` : `Focus ${label}`);
   button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>';
-  button.addEventListener("click", (event) => {
+  button.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
     focusModelElements(elements, focusKey);
   });
   return button;
 }
+
 function focusModelElements(elements, focusKey) {
   if (state.modelFocusKey === focusKey) {
     showAll();
@@ -376,45 +421,55 @@ function focusModelElements(elements, focusKey) {
   setFocusMaterialMode(true);
   state.selectedId = null;
   updateSelectionOverlay();
-  panelContent.replaceChildren(node("p", "panel-empty", "Click an element in the model to inspect it."));
+  panelContent.replaceChildren(node('p', 'panel-empty', 'Click an element in the model to inspect it.'));
   refreshAllColors();
   renderModelTree(modelSearch.value);
   invalidate();
 }
+
 function formatIfcType(type) {
-  return String(type || "IfcProduct").replace(/^Ifc/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+  return String(type || 'IfcProduct')
+    .replace(/^Ifc/, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2');
 }
+
 async function buildSelectionIndex() {
   if (!state.batches.size) return;
-  setStatus("Building fast selection index\u2026");
+  setStatus('Building fast selection index…');
   await nextFrame();
   try {
     for (const { geometry } of state.batches.values()) {
+      // indirect preserves the original triangle order, so faceIndex still maps
+      // to the correct IFC STEP id after the BVH is built.
       geometry.computeBoundsTree({ strategy: CENTER, indirect: true, targetLeafSize: 24 });
       await nextFrame();
     }
     state.selectionReady = true;
     const model = state.metadata.model || {};
-    setStatus(`${formatInteger(model.element_count || state.elementsById.size)} elements \xB7 ready`);
+    setStatus(`${formatInteger(model.element_count || state.elementsById.size)} elements · ready`);
   } catch (error) {
-    console.warn("BVH construction failed; falling back to standard raycasting.", error);
+    console.warn('BVH construction failed; falling back to standard raycasting.', error);
     state.selectionReady = true;
-    setStatus("Model ready; fast selection index could not be built.", true);
+    setStatus('Model ready; fast selection index could not be built.', true);
   }
 }
+
 function pick(clientX, clientY) {
   if (!state.selectionReady) {
-    setStatus("Selection index is still being built.");
+    setStatus('Selection index is still being built.');
     return null;
   }
   const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = (clientX - rect.left) / rect.width * 2 - 1;
+  pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
+
+  // When elements are hidden, collect every hit so a transparent/hidden
+  // triangle cannot prevent selecting the visible element behind it.
   raycaster.firstHitOnly = state.hidden.size === 0;
   const intersections = raycaster.intersectObjects(
     [...state.batches.values()].map((batch) => batch.mesh),
-    false
+    false,
   );
   for (const hit of intersections) {
     const batch = hit.object.userData.batchName;
@@ -427,13 +482,14 @@ function pick(clientX, clientY) {
   select(null);
   return null;
 }
+
 function elementForTriangle(batch, triangleIndex) {
   if (!Number.isInteger(triangleIndex)) return null;
   const ranges = state.rangesByBatch.get(batch) || [];
   let low = 0;
   let high = ranges.length - 1;
   while (low <= high) {
-    const middle = low + high >> 1;
+    const middle = (low + high) >> 1;
     const item = ranges[middle];
     const start = item.triangle_start;
     const end = start + item.triangle_count;
@@ -443,6 +499,7 @@ function elementForTriangle(batch, triangleIndex) {
   }
   return null;
 }
+
 function select(expressId, openProperties = true) {
   const nextId = expressId == null ? null : Number(expressId);
   if (nextId !== null && !state.elementsById.has(nextId)) return false;
@@ -450,143 +507,167 @@ function select(expressId, openProperties = true) {
   state.selectedId = nextId;
   refreshElementColors([previous, nextId].filter((value) => value !== null));
   updateSelectionOverlay();
+
   if (nextId === null) {
-    panelContent.replaceChildren(node("p", "panel-empty", "Click an element in the model to inspect it."));
-    globalThis.dispatchEvent(new CustomEvent("ifcviewer:select", { detail: null }));
+    panelContent.replaceChildren(node('p', 'panel-empty', 'Click an element in the model to inspect it.'));
+    globalThis.dispatchEvent(new CustomEvent('ifcviewer:select', { detail: null }));
   } else {
     const element = state.elementsById.get(nextId);
     renderProperties(element);
     if (openProperties) {
       releasePanelFocus(modelPanel);
-      modelPanel.classList.remove("open");
-      modelPanel.setAttribute("aria-hidden", "true");
-      setActionPressed("toggle-model", false);
-      panel.classList.add("open");
-      panel.setAttribute("aria-hidden", "false");
-      setActionPressed("toggle-panel", true);
+      modelPanel.classList.remove('open');
+      modelPanel.setAttribute('aria-hidden', 'true');
+      setActionPressed('toggle-model', false);
+      panel.classList.add('open');
+      panel.setAttribute('aria-hidden', 'false');
+      setActionPressed('toggle-panel', true);
     }
-    globalThis.dispatchEvent(new CustomEvent("ifcviewer:select", { detail: element }));
+    globalThis.dispatchEvent(new CustomEvent('ifcviewer:select', { detail: element }));
   }
   refreshModelTree();
   invalidate();
   return true;
 }
+
 function renderProperties(element) {
   const fragment = document.createDocumentFragment();
-  const identity = node("section", "property-card");
-  identity.append(node("h2", null, "Attributes"));
-  const table = node("dl", "identity-grid");
-  addDefinition(table, "Name", element.name);
-  addDefinition(table, "IFC class", formatIfcType(element.ifc_type));
-  addDefinition(table, "STEP ID", `#${element.id}`);
-  addDefinition(table, "Global ID", element.global_id);
-  addDefinition(table, "ObjectType", element.object_type);
+
+  const identity = node('section', 'property-card');
+  identity.append(node('h2', null, 'Attributes'));
+  const table = node('dl', 'identity-grid');
+  addDefinition(table, 'Name', element.name);
+  addDefinition(table, 'IFC class', formatIfcType(element.ifc_type));
+  addDefinition(table, 'STEP ID', `#${element.id}`);
+  addDefinition(table, 'Global ID', element.global_id);
+  addDefinition(table, 'ObjectType', element.object_type);
   for (const item of element.attributes || []) {
     addDefinition(table, item.name, formatPropertyValue(item.value));
   }
   identity.append(table);
   fragment.append(identity);
+
   appendReferenceSection(fragment, element);
-  appendSetSection(fragment, "Property sets", element.property_sets, "properties");
-  appendSetSection(fragment, "Quantity sets", element.quantity_sets, "quantities");
+  appendSetSection(fragment, 'Property sets', element.property_sets, 'properties');
+  appendSetSection(fragment, 'Quantity sets', element.quantity_sets, 'quantities');
+
   if (!element.attributes?.length && !element.property_sets?.length && !element.quantity_sets?.length) {
-    fragment.append(node("p", "panel-empty", "No decoded properties are available for this element."));
+    fragment.append(node('p', 'panel-empty', 'No decoded properties are available for this element.'));
   }
   panelContent.replaceChildren(fragment);
 }
+
 function appendReferenceSection(parent, element) {
   const index = state.metadata?.references || {};
   const reference = index.elements?.[String(element.id)];
   if (!reference) return;
-  const outer = document.createElement("details");
-  outer.className = "property-group reference-group";
+
+  const outer = document.createElement('details');
+  outer.className = 'property-group reference-group';
   outer.open = true;
-  outer.append(node("summary", null, "References"));
+  outer.append(node('summary', null, 'References'));
+
   const spatialRows = [];
-  if (reference.container_id !== void 0) {
-    spatialRows.push(["Container", formatSpatialReference(reference.container_id)]);
+  if (reference.container_id !== undefined) {
+    spatialRows.push(['Container', formatSpatialReference(reference.container_id)]);
   }
-  if (reference.storey_id !== void 0 && Number(reference.storey_id) !== Number(reference.container_id)) {
-    spatialRows.push(["Storey", formatSpatialReference(reference.storey_id)]);
+  if (
+    reference.storey_id !== undefined &&
+    Number(reference.storey_id) !== Number(reference.container_id)
+  ) {
+    spatialRows.push(['Storey', formatSpatialReference(reference.storey_id)]);
   }
   if (Array.isArray(reference.referenced_by_structure)) {
     spatialRows.push([
-      "Referenced by",
-      reference.referenced_by_structure.map(formatSpatialReference).filter(Boolean).join(", ")
+      'Referenced by',
+      reference.referenced_by_structure.map(formatSpatialReference).filter(Boolean).join(', '),
     ]);
   }
-  appendReferenceSet(outer, "Spatial", spatialRows);
+  appendReferenceSet(outer, 'Spatial', spatialRows);
+
   const relationshipRows = summariseRelationships(reference.relationships || []);
-  appendReferenceSet(outer, "Relationships", relationshipRows);
+  appendReferenceSet(outer, 'Relationships', relationshipRows);
+
   for (const assignment of reference.materials || []) {
     const definition = index.material_definitions?.[String(assignment.definition_id)] || {};
-    const materialName = definition.name && definition.name !== "<Unnamed>" ? definition.name : "Unnamed material";
-    appendReferenceSet(outer, "Material", [
-      ["Name", materialName],
-      ["Category", definition.category]
+    const materialName = definition.name && definition.name !== '<Unnamed>'
+      ? definition.name
+      : 'Unnamed material';
+    appendReferenceSet(outer, 'Material', [
+      ['Name', materialName],
+      ['Category', definition.category],
     ]);
-    appendReferenceSet(outer, "Definition", [
-      ["Type", formatIfcType(definition.material_type)],
+    appendReferenceSet(outer, 'Definition', [
+      ['Type', formatIfcType(definition.material_type)],
       [
-        "Inherited from type",
-        assignment.inherited_from_type == null ? null : formatReferenceTarget(assignment.inherited_from_type)
-      ]
+        'Inherited from type',
+        assignment.inherited_from_type == null
+          ? null
+          : formatReferenceTarget(assignment.inherited_from_type),
+      ],
     ]);
-    appendMaterialPartsSection(outer, "Layers", definition.layers);
-    appendMaterialPartsSection(outer, "Constituents", definition.constituents);
-    appendMaterialPartsSection(outer, "Profiles", definition.profiles);
-    appendMaterialPartsSection(outer, "Materials", definition.materials);
+    appendMaterialPartsSection(outer, 'Layers', definition.layers);
+    appendMaterialPartsSection(outer, 'Constituents', definition.constituents);
+    appendMaterialPartsSection(outer, 'Profiles', definition.profiles);
+    appendMaterialPartsSection(outer, 'Materials', definition.materials);
   }
+
   if (outer.children.length > 1) parent.append(outer);
 }
+
 function appendReferenceSet(parent, title, rows) {
-  const available = rows.filter(([, value]) => value !== null && value !== void 0 && value !== "");
+  const available = rows.filter(([, value]) => value !== null && value !== undefined && value !== '');
   if (!available.length) return;
-  const section = document.createElement("details");
-  section.className = "property-set reference-set";
+  const section = document.createElement('details');
+  section.className = 'property-set reference-set';
   section.open = true;
-  section.append(node("summary", null, title));
-  const table = node("dl", "property-list");
+  section.append(node('summary', null, title));
+  const table = node('dl', 'property-list');
   for (const [label, value] of available) addDefinition(table, label, value);
   section.append(table);
   parent.append(section);
 }
+
 function formatSpatialReference(expressId) {
   const numericId = Number(expressId);
   const spatialNode = state.metadata?.references?.spatial_nodes?.[String(numericId)];
   if (!spatialNode) return null;
   const fallback = formatIfcType(spatialNode.ifc_type);
-  const name = spatialNode.name && !/^Entity #\d+$/i.test(spatialNode.name) ? spatialNode.name : fallback;
+  const name = spatialNode.name && !/^Entity #\d+$/i.test(spatialNode.name)
+    ? spatialNode.name
+    : fallback;
   return name;
 }
+
 function summariseRelationships(relationships) {
-  const groups = /* @__PURE__ */ new Map();
+  const groups = new Map();
   for (const relationship of relationships) {
     const label = relationshipLabel(relationship);
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label).push(relationship);
   }
   return [...groups.entries()].map(([label, rows]) => {
-    const targets = rows.map((row) => formatReferenceTarget(row.target_id)).filter(Boolean);
+    const targets = rows
+      .map((row) => formatReferenceTarget(row.target_id))
+      .filter(Boolean);
     if (!targets.length) return null;
-    const visible = targets.slice(0, 4).join(", ");
-    const remainder = targets.length > 4 ? ` +${targets.length - 4} more` : "";
+    const visible = targets.slice(0, 4).join(', ');
+    const remainder = targets.length > 4 ? ` +${targets.length - 4} more` : '';
     return [label, `${visible}${remainder}`];
   }).filter(Boolean);
 }
+
 function relationshipLabel(relationship) {
-  const related = relationship.role === "related";
+  const related = relationship.role === 'related';
   switch (relationship.relationship_type) {
-    case "IfcRelDefinesByType":
-      return related ? "Type definition" : "Typed occurrences";
-    case "IfcRelAggregates":
-      return related ? "Aggregated by" : "Aggregated parts";
-    case "IfcRelNests":
-      return related ? "Nested under" : "Nested items";
+    case 'IfcRelDefinesByType': return related ? 'Type definition' : 'Typed occurrences';
+    case 'IfcRelAggregates': return related ? 'Aggregated by' : 'Aggregated parts';
+    case 'IfcRelNests': return related ? 'Nested under' : 'Nested items';
     default:
-      return `${formatIfcType(relationship.relationship_type)} ${related ? "from" : "to"}`;
+      return `${formatIfcType(relationship.relationship_type)} ${related ? 'from' : 'to'}`;
   }
 }
+
 function formatReferenceTarget(expressId) {
   const numericId = Number(expressId);
   const element = state.elementsById.get(numericId);
@@ -602,35 +683,39 @@ function formatReferenceTarget(expressId) {
   }
   return null;
 }
+
 function formatMaterialPart(part) {
-  const name = part.material_name || part.name || part.profile_name || "Unnamed";
+  const name = part.material_name || part.name || part.profile_name || 'Unnamed';
   const category = part.material_category || part.category;
   const thickness = Number(part.thickness);
   const details = [];
   if (category) details.push(category);
   if (Number.isFinite(thickness)) details.push(formatPropertyValue(thickness));
-  return details.length ? `${name} (${details.join(" \xB7 ")})` : name;
+  return details.length ? `${name} (${details.join(' · ')})` : name;
 }
+
 function appendMaterialPartsSection(parent, title, parts) {
   if (!Array.isArray(parts) || !parts.length) return;
   const rows = parts.map((part, index) => [
-    parts.length === 1 ? "Name" : `Item ${index + 1}`,
-    formatMaterialPart(part)
+    parts.length === 1 ? 'Name' : `Item ${index + 1}`,
+    formatMaterialPart(part),
   ]);
   appendReferenceSet(parent, title, rows);
 }
+
 function appendSetSection(parent, title, sets, itemKey) {
   if (!Array.isArray(sets) || sets.length === 0) return;
-  const outer = document.createElement("details");
-  outer.className = "property-group";
+  const outer = document.createElement('details');
+  outer.className = 'property-group';
   outer.open = true;
-  outer.append(node("summary", null, title));
+  outer.append(node('summary', null, title));
+
   for (const set of sets) {
-    const inner = document.createElement("details");
-    inner.className = "property-set";
+    const inner = document.createElement('details');
+    inner.className = 'property-set';
     inner.open = true;
-    inner.append(node("summary", null, set.name || "Unnamed set"));
-    const table = node("dl", "property-list");
+    inner.append(node('summary', null, set.name || 'Unnamed set'));
+    const table = node('dl', 'property-list');
     for (const item of set[itemKey] || []) {
       addDefinition(table, item.name, formatPropertyValue(item.value));
     }
@@ -639,11 +724,13 @@ function appendSetSection(parent, title, sets, itemKey) {
   }
   parent.append(outer);
 }
+
 function addDefinition(list, label, value) {
-  if (value === null || value === void 0 || value === "") return;
-  list.append(node("dt", null, String(label || "Value")));
-  list.append(node("dd", null, String(value)));
+  if (value === null || value === undefined || value === '') return;
+  list.append(node('dt', null, String(label || 'Value')));
+  list.append(node('dd', null, String(value)));
 }
+
 function setColor(expressIds, color) {
   const ids = normaliseIds(expressIds);
   const rgba = parseCssColor(color);
@@ -656,6 +743,7 @@ function setColor(expressIds, color) {
   }
   invalidate();
 }
+
 function resetColor(expressIds) {
   const ids = normaliseIds(expressIds);
   for (const id of ids) {
@@ -668,6 +756,7 @@ function resetColor(expressIds) {
   }
   invalidate();
 }
+
 function hide(expressIds) {
   const hadModelFocus = Boolean(state.modelFocusIds);
   clearModelFocus();
@@ -680,6 +769,7 @@ function hide(expressIds) {
   refreshModelTree();
   invalidate();
 }
+
 function show(expressIds) {
   const ids = normaliseIds(expressIds);
   ids.forEach((id) => state.hidden.delete(id));
@@ -687,6 +777,7 @@ function show(expressIds) {
   refreshModelTree();
   invalidate();
 }
+
 function isolate(expressIds) {
   clearModelFocus();
   const keep = new Set(normaliseIds(expressIds));
@@ -698,6 +789,7 @@ function isolate(expressIds) {
   refreshModelTree();
   invalidate();
 }
+
 function showAll() {
   clearModelFocus();
   state.hidden.clear();
@@ -705,11 +797,13 @@ function showAll() {
   refreshModelTree();
   invalidate();
 }
+
 function clearModelFocus() {
   if (state.modelFocusIds) setFocusMaterialMode(false);
   state.modelFocusIds = null;
   state.modelFocusKey = null;
 }
+
 function setFocusMaterialMode(enabled) {
   for (const batch of state.batches.values()) {
     batch.material.transparent = enabled || batch.transparent;
@@ -718,9 +812,11 @@ function setFocusMaterialMode(enabled) {
     batch.material.needsUpdate = true;
   }
 }
+
 function refreshModelTree() {
-  if (modelPanel.classList.contains("open")) renderModelTree(modelSearch.value);
+  if (modelPanel.classList.contains('open')) renderModelTree(modelSearch.value);
 }
+
 function effectiveColor(element) {
   const color = (state.customColors.get(element.id) || element.base_color || [184, 188, 199, 255]).slice();
   if (state.hidden.has(element.id)) color[3] = 0;
@@ -736,6 +832,7 @@ function effectiveColor(element) {
   }
   return color;
 }
+
 function updateSelectionOverlay() {
   for (const child of [...selectionGroup.children]) {
     selectionGroup.remove(child);
@@ -743,10 +840,12 @@ function updateSelectionOverlay() {
     child.material?.dispose();
   }
   if (state.selectedId === null) return;
+
   const element = state.elementsById.get(state.selectedId);
   const batch = element && state.batches.get(element.batch);
   if (!element || !batch) return;
-  const sourcePositions = batch.geometry.getAttribute("position").array;
+
+  const sourcePositions = batch.geometry.getAttribute('position').array;
   const sourceIndices = batch.geometry.index.array;
   const vertexStart = element.vertex_start;
   const vertexEnd = vertexStart + element.vertex_count;
@@ -755,48 +854,53 @@ function updateSelectionOverlay() {
   const positions = sourcePositions.slice(vertexStart * 3, vertexEnd * 3);
   const indices = sourceIndices.slice(indexStart, indexEnd);
   for (let index = 0; index < indices.length; index += 1) indices[index] -= vertexStart;
+
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+
   const fill = new THREE.Mesh(
     geometry,
     new THREE.MeshBasicMaterial({
-      color: 16765774,
+      color: 0xffd34e,
       transparent: true,
       opacity: 0.16,
       depthWrite: false,
       side: THREE.DoubleSide,
       polygonOffset: true,
       polygonOffsetFactor: -1,
-      polygonOffsetUnits: -1
-    })
+      polygonOffsetUnits: -1,
+    }),
   );
   fill.renderOrder = 10;
   selectionGroup.add(fill);
+
   const outline = new THREE.LineSegments(
     new THREE.EdgesGeometry(geometry, 35),
     new THREE.LineBasicMaterial({
-      color: 16758528,
+      color: 0xffb700,
       depthTest: true,
       depthWrite: false,
       linewidth: 2,
-      toneMapped: false
-    })
+      toneMapped: false,
+    }),
   );
   outline.renderOrder = 11;
   selectionGroup.add(outline);
 }
+
 function refreshAllColors() {
   refreshElementColors([...state.elementsById.keys()]);
 }
+
 function refreshElementColors(expressIds) {
-  const dirty = /* @__PURE__ */ new Map();
+  const dirty = new Map();
   for (const id of new Set(expressIds.map(Number))) {
     const element = state.elementsById.get(id);
     if (!element) continue;
     const batch = state.batches.get(element.batch);
     if (!batch) continue;
-    const attribute = batch.geometry.getAttribute("color");
+    const attribute = batch.geometry.getAttribute('color');
     const array = attribute.array;
     const color = effectiveColor(element);
     const componentStart = element.vertex_start * 4;
@@ -812,21 +916,24 @@ function refreshElementColors(expressIds) {
     range.end = Math.max(range.end, componentEnd);
     dirty.set(element.batch, range);
   }
+
   for (const [batchName, range] of dirty) {
-    const attribute = state.batches.get(batchName).geometry.getAttribute("color");
+    const attribute = state.batches.get(batchName).geometry.getAttribute('color');
     attribute.clearUpdateRanges?.();
     attribute.addUpdateRange?.(range.start, range.end - range.start);
     attribute.needsUpdate = true;
   }
 }
+
 function fitModel() {
   const bbox = state.metadata?.model?.local_bbox;
   if (!Array.isArray(bbox) || bbox.length !== 6) return;
   fitBox(new THREE.Box3(
     new THREE.Vector3(bbox[0], bbox[1], bbox[2]),
-    new THREE.Vector3(bbox[3], bbox[4], bbox[5])
+    new THREE.Vector3(bbox[3], bbox[4], bbox[5]),
   ));
 }
+
 function fitSelection() {
   if (state.selectedId === null) {
     fitModel();
@@ -836,16 +943,17 @@ function fitSelection() {
   if (!element?.bbox || element.bbox.length !== 6) return;
   fitBox(new THREE.Box3(
     new THREE.Vector3(element.bbox[0], element.bbox[1], element.bbox[2]),
-    new THREE.Vector3(element.bbox[3], element.bbox[4], element.bbox[5])
+    new THREE.Vector3(element.bbox[3], element.bbox[4], element.bbox[5]),
   ), 1.8);
 }
+
 function fitBox(box, padding = 1.35) {
   if (box.isEmpty()) return;
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const radius = Math.max(size.length() * 0.5, 0.1);
   const fov = THREE.MathUtils.degToRad(camera.fov);
-  const distance = radius / Math.sin(fov * 0.5) * padding;
+  const distance = (radius / Math.sin(fov * 0.5)) * padding;
   const direction = new THREE.Vector3(1, -1.25, 0.85).normalize();
   camera.position.copy(center).addScaledVector(direction, distance);
   controls.target.copy(center);
@@ -853,74 +961,82 @@ function fitBox(box, padding = 1.35) {
   updateCameraClipping();
   invalidate();
 }
+
 function buildGrid() {
   const bbox = state.metadata?.model?.local_bbox;
   if (!Array.isArray(bbox) || bbox.length !== 6) return;
   const width = Math.max(bbox[3] - bbox[0], bbox[4] - bbox[1], 1);
   const gridSize = niceGridSize(width * 1.5);
-  grid = new THREE.GridHelper(gridSize, 40, 6122363, 3160390);
+  grid = new THREE.GridHelper(gridSize, 40, 0x5d6b7b, 0x303946);
   grid.rotation.x = Math.PI / 2;
-  grid.position.set((bbox[0] + bbox[3]) / 2, (bbox[1] + bbox[4]) / 2, bbox[2] - gridSize * 1e-3);
+  grid.position.set((bbox[0] + bbox[3]) / 2, (bbox[1] + bbox[4]) / 2, bbox[2] - gridSize * 0.001);
   grid.material.transparent = true;
   grid.material.opacity = 0.28;
   grid.material.depthWrite = false;
   scene.add(grid);
 }
+
 function toggleGrid() {
   state.gridVisible = !state.gridVisible;
   if (grid) grid.visible = state.gridVisible;
-  setActionPressed("toggle-grid", state.gridVisible);
+  setActionPressed('toggle-grid', state.gridVisible);
   invalidate();
 }
+
 function setDoubleSided(enabled) {
   state.doubleSided = Boolean(enabled);
   for (const { material } of state.batches.values()) {
     material.side = state.doubleSided ? THREE.DoubleSide : THREE.FrontSide;
     material.needsUpdate = true;
   }
-  setActionPressed("toggle-double-side", state.doubleSided);
+  setActionPressed('toggle-double-side', state.doubleSided);
   invalidate();
 }
+
 function toggleDoubleSided() {
   setDoubleSided(!state.doubleSided);
 }
+
 function togglePanel() {
-  const open = panel.classList.toggle("open");
+  const open = panel.classList.toggle('open');
   if (!open) releasePanelFocus(panel);
-  panel.setAttribute("aria-hidden", String(!open));
+  panel.setAttribute('aria-hidden', String(!open));
   if (open) {
     releasePanelFocus(modelPanel);
-    modelPanel.classList.remove("open");
-    modelPanel.setAttribute("aria-hidden", "true");
-    setActionPressed("toggle-model", false);
+    modelPanel.classList.remove('open');
+    modelPanel.setAttribute('aria-hidden', 'true');
+    setActionPressed('toggle-model', false);
   }
-  setActionPressed("toggle-panel", open);
+  setActionPressed('toggle-panel', open);
 }
+
 function toggleModelPanel() {
-  const open = modelPanel.classList.toggle("open");
+  const open = modelPanel.classList.toggle('open');
   if (!open) releasePanelFocus(modelPanel);
-  modelPanel.setAttribute("aria-hidden", String(!open));
+  modelPanel.setAttribute('aria-hidden', String(!open));
   if (open) {
     releasePanelFocus(panel);
-    panel.classList.remove("open");
-    panel.setAttribute("aria-hidden", "true");
-    setActionPressed("toggle-panel", false);
+    panel.classList.remove('open');
+    panel.setAttribute('aria-hidden', 'true');
+    setActionPressed('toggle-panel', false);
     renderModelTree(modelSearch.value);
     modelSearch.focus();
   } else {
     showAll();
   }
-  setActionPressed("toggle-model", open);
+  setActionPressed('toggle-model', open);
 }
+
 function releasePanelFocus(activePanel) {
   const focused = document.activeElement;
   if (focused instanceof HTMLElement && activePanel.contains(focused)) focused.blur();
 }
+
 function openContextMenu(event) {
   event.preventDefault();
   const selected = pick(event.clientX, event.clientY);
-  for (const button of contextMenu.querySelectorAll("[data-context-action]")) {
-    button.disabled = !selected && button.dataset.contextAction !== "show-all";
+  for (const button of contextMenu.querySelectorAll<HTMLButtonElement>('[data-context-action]')) {
+    button.disabled = !selected && button.dataset.contextAction !== 'show-all';
   }
   contextMenu.hidden = false;
   const rootBounds = root.getBoundingClientRect();
@@ -932,75 +1048,68 @@ function openContextMenu(event) {
   contextMenu.style.left = `${Math.max(inset, Math.min(maxLeft, left))}px`;
   contextMenu.style.top = `${Math.max(inset, Math.min(maxTop, top))}px`;
 }
+
 function closeContextMenu() {
   contextMenu.hidden = true;
 }
+
 function runContextAction(action) {
   const selectedId = state.selectedId;
   closeContextMenu();
   switch (action) {
-    case "show-properties":
+    case 'show-properties':
       if (selectedId !== null) {
-        modelPanel.classList.remove("open");
-        modelPanel.setAttribute("aria-hidden", "true");
-        setActionPressed("toggle-model", false);
-        panel.classList.add("open");
-        panel.setAttribute("aria-hidden", "false");
-        setActionPressed("toggle-panel", true);
+        modelPanel.classList.remove('open');
+        modelPanel.setAttribute('aria-hidden', 'true');
+        setActionPressed('toggle-model', false);
+        panel.classList.add('open');
+        panel.setAttribute('aria-hidden', 'false');
+        setActionPressed('toggle-panel', true);
       }
       break;
-    case "isolate":
+    case 'isolate':
       if (selectedId !== null) isolate(selectedId);
       break;
-    case "hide-selected":
+    case 'hide-selected':
       if (selectedId !== null) hide(selectedId);
       break;
-    case "show-all":
+    case 'show-all':
       showAll();
       break;
     default:
       break;
   }
 }
+
 function setActionPressed(action, pressed) {
-  document.querySelector(`[data-action="${action}"]`)?.setAttribute("aria-pressed", String(pressed));
+  document.querySelector(`[data-action="${action}"]`)?.setAttribute('aria-pressed', String(pressed));
 }
+
 function runAction(action) {
   switch (action) {
-    case "fit":
-      fitModel();
-      break;
-    case "fit-selection":
-      fitSelection();
-      break;
-    case "toggle-grid":
-      toggleGrid();
-      break;
-    case "show-all":
-      showAll();
-      break;
-    case "toggle-panel":
-      togglePanel();
-      break;
-    case "toggle-model":
-      toggleModelPanel();
-      break;
-    case "toggle-double-side":
-      toggleDoubleSided();
-      break;
-    default:
-      break;
+    case 'fit': fitModel(); break;
+    case 'fit-selection': fitSelection(); break;
+    case 'toggle-grid': toggleGrid(); break;
+    case 'show-all': showAll(); break;
+    case 'toggle-panel': togglePanel(); break;
+    case 'toggle-model': toggleModelPanel(); break;
+    case 'toggle-double-side': toggleDoubleSided(); break;
+    default: break;
   }
 }
+
 function createPublicApi() {
-  const find = (query = {}) => {
-    if (typeof query === "string") query = { text: query };
-    const types = query.ifcType ? new Set((Array.isArray(query.ifcType) ? query.ifcType : [query.ifcType]).map((value) => String(value).toLocaleLowerCase())) : null;
-    const text = String(query.text || "").trim().toLocaleLowerCase();
+  const find = (query: any = {}) => {
+    if (typeof query === 'string') query = { text: query };
+    const types = query.ifcType
+      ? new Set((Array.isArray(query.ifcType) ? query.ifcType : [query.ifcType])
+          .map((value) => String(value).toLocaleLowerCase()))
+      : null;
+    const text = String(query.text || '').trim().toLocaleLowerCase();
     const visibleOnly = Boolean(query.visibleOnly);
     const result = [];
     for (const element of state.elementsById.values()) {
-      if (types && !types.has(String(element.ifc_type || "").toLocaleLowerCase())) continue;
+      if (types && !types.has(String(element.ifc_type || '').toLocaleLowerCase())) continue;
       if (visibleOnly && state.hidden.has(element.id)) continue;
       if (text) {
         const haystack = [
@@ -1009,8 +1118,10 @@ function createPublicApi() {
           element.name,
           element.global_id,
           element.object_type,
-          element.description
-        ].filter((value) => value !== null && value !== void 0).join(" ").toLocaleLowerCase();
+          element.description,
+        ].filter((value) => value !== null && value !== undefined)
+          .join(' ')
+          .toLocaleLowerCase();
         if (!haystack.includes(text)) continue;
       }
       result.push(element.id);
@@ -1037,43 +1148,47 @@ function createPublicApi() {
     getSelected: () => state.selectedId,
     getElement: (id) => state.elementsById.get(Number(id)) || null,
     getReferences: (id) => structuredClone(
-      state.metadata?.references?.elements?.[String(Number(id))] || null
+      state.metadata?.references?.elements?.[String(Number(id))] || null,
     ),
     find,
     getModelInfo: () => structuredClone(state.metadata.model),
-    getElementIds: () => [...state.elementsById.keys()]
+    getElementIds: () => [...state.elementsById.keys()],
   });
 }
+
 function startPanelDrag(event) {
-  if (event.button !== 0 || event.target.closest("button") || matchMedia("(max-width: 720px)").matches) return;
-  const activePanel = event.currentTarget.closest(".viewer-panel");
+  if (event.button !== 0 || event.target.closest('button') || matchMedia('(max-width: 720px)').matches) return;
+  const activePanel = event.currentTarget.closest('.viewer-panel');
   const bounds = activePanel.getBoundingClientRect();
   activePanel.style.left = `${bounds.left}px`;
   activePanel.style.top = `${bounds.top}px`;
-  activePanel.style.right = "auto";
-  activePanel.style.bottom = "auto";
+  activePanel.style.right = 'auto';
+  activePanel.style.bottom = 'auto';
   panelDrag = {
     panel: activePanel,
     header: event.currentTarget,
     pointerId: event.pointerId,
     offsetX: event.clientX - bounds.left,
-    offsetY: event.clientY - bounds.top
+    offsetY: event.clientY - bounds.top,
   };
   panelDrag.header.setPointerCapture(event.pointerId);
-  activePanel.classList.add("dragging");
+  activePanel.classList.add('dragging');
   event.preventDefault();
 }
+
 function movePanelDrag(event) {
   if (!panelDrag || event.pointerId !== panelDrag.pointerId) return;
   positionPanel(panelDrag.panel, event.clientX - panelDrag.offsetX, event.clientY - panelDrag.offsetY);
 }
+
 function endPanelDrag(event) {
   if (!panelDrag || event.pointerId !== panelDrag.pointerId) return;
   const { panel: activePanel, header, pointerId } = panelDrag;
   panelDrag = null;
-  activePanel.classList.remove("dragging");
+  activePanel.classList.remove('dragging');
   if (header.hasPointerCapture(pointerId)) header.releasePointerCapture(pointerId);
 }
+
 function positionPanel(activePanel, left, top) {
   const inset = 10;
   const maxLeft = Math.max(inset, root.clientWidth - activePanel.offsetWidth - inset);
@@ -1081,22 +1196,25 @@ function positionPanel(activePanel, left, top) {
   activePanel.style.left = `${Math.min(maxLeft, Math.max(inset, left))}px`;
   activePanel.style.top = `${Math.min(maxTop, Math.max(inset, top))}px`;
 }
+
 function resetPanelPosition(event) {
-  if (matchMedia("(max-width: 720px)").matches) return;
-  const activePanel = event.currentTarget.closest(".viewer-panel");
-  activePanel.style.removeProperty("left");
-  activePanel.style.removeProperty("top");
-  activePanel.style.removeProperty("right");
-  activePanel.style.removeProperty("bottom");
+  if (matchMedia('(max-width: 720px)').matches) return;
+  const activePanel = event.currentTarget.closest('.viewer-panel');
+  activePanel.style.removeProperty('left');
+  activePanel.style.removeProperty('top');
+  activePanel.style.removeProperty('right');
+  activePanel.style.removeProperty('bottom');
 }
+
 function keepPanelsInViewport() {
-  if (matchMedia("(max-width: 720px)").matches) return;
-  for (const activePanel of document.querySelectorAll(".viewer-panel")) {
+  if (matchMedia('(max-width: 720px)').matches) return;
+  for (const activePanel of document.querySelectorAll<HTMLElement>('.viewer-panel')) {
     if (activePanel.style.left) {
       positionPanel(activePanel, Number.parseFloat(activePanel.style.left), Number.parseFloat(activePanel.style.top));
     }
   }
 }
+
 function resize() {
   const width = Math.max(root.clientWidth, 1);
   const height = Math.max(root.clientHeight, 1);
@@ -1106,6 +1224,7 @@ function resize() {
   keepPanelsInViewport();
   invalidate();
 }
+
 function invalidate() {
   if (renderQueued) return;
   renderQueued = true;
@@ -1115,6 +1234,7 @@ function invalidate() {
     renderer.render(scene, camera);
   });
 }
+
 function updateCameraClipping() {
   const bbox = state.metadata?.model?.local_bbox;
   if (!Array.isArray(bbox) || bbox.length !== 6) return;
@@ -1122,10 +1242,10 @@ function updateCameraClipping() {
     bbox[3] - bbox[0],
     bbox[4] - bbox[1],
     bbox[5] - bbox[2],
-    1
+    1,
   );
   const distance = Math.max(camera.position.distanceTo(controls.target), 0.01);
-  const near = Math.max(distance / 500, modelSize / 1e6, 1e-3);
+  const near = Math.max(distance / 500, modelSize / 1_000_000, 0.001);
   const far = Math.max(distance + modelSize * 4, near * 100);
   if (Math.abs(camera.near - near) < near * 0.01 && Math.abs(camera.far - far) < far * 0.01) {
     return;
@@ -1134,18 +1254,21 @@ function updateCameraClipping() {
   camera.far = far;
   camera.updateProjectionMatrix();
 }
-let statusTimer;
+
+let statusTimer: ReturnType<typeof setTimeout> | undefined;
+
 function setStatus(text, warning = false) {
   statusNode.textContent = text;
-  statusNode.classList.toggle("warning", warning);
-  statusNode.classList.add("visible");
+  statusNode.classList.toggle('warning', warning);
+  statusNode.classList.add('visible');
   clearTimeout(statusTimer);
-  statusTimer = setTimeout(() => statusNode.classList.remove("visible"), warning ? 8e3 : 3500);
+  statusTimer = setTimeout(() => statusNode.classList.remove('visible'), warning ? 8000 : 3500);
 }
+
 function base64ToBytes(text) {
-  const chunkLength = 32768;
-  const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
-  const bytes = new Uint8Array(text.length * 3 / 4 - padding);
+  const chunkLength = 32768; // divisible by four, so chunk boundaries are valid base64
+  const padding = text.endsWith('==') ? 2 : text.endsWith('=') ? 1 : 0;
+  const bytes = new Uint8Array((text.length * 3) / 4 - padding);
   let outputOffset = 0;
   for (let start = 0; start < text.length; start += chunkLength) {
     const binary = atob(text.slice(start, start + chunkLength));
@@ -1155,14 +1278,15 @@ function base64ToBytes(text) {
   }
   return bytes;
 }
+
 function parseCssColor(value) {
   if (Array.isArray(value) || ArrayBuffer.isView(value)) {
-    const result = Array.from(value).slice(0, 4).map(Number);
+    const result = Array.from(value as unknown as ArrayLike<number>).slice(0, 4).map(Number);
     if (result.length !== 3 && result.length !== 4) {
-      throw new Error("A color array must contain three or four channels.");
+      throw new Error('A color array must contain three or four channels.');
     }
     if (!result.every(Number.isFinite)) {
-      throw new Error("Color channels must be finite numbers.");
+      throw new Error('Color channels must be finite numbers.');
     }
     const normalized = result.slice(0, 3).every((channel) => channel >= 0 && channel <= 1);
     const alphaNormalized = result.length === 4 && result[3] >= 0 && result[3] <= 1;
@@ -1176,8 +1300,8 @@ function parseCssColor(value) {
   const text = String(value).trim();
   if (/^#[0-9a-f]{3,8}$/i.test(text)) {
     let hex = text.slice(1);
-    if (hex.length === 3 || hex.length === 4) hex = [...hex].map((part) => part + part).join("");
-    if (hex.length === 6) hex += "ff";
+    if (hex.length === 3 || hex.length === 4) hex = [...hex].map((part) => part + part).join('');
+    if (hex.length === 6) hex += 'ff';
     if (hex.length === 8) return [0, 2, 4, 6].map((start) => parseInt(hex.slice(start, start + 2), 16));
   }
   const color = new THREE.Color(text);
@@ -1185,53 +1309,69 @@ function parseCssColor(value) {
     Math.round(color.r * 255),
     Math.round(color.g * 255),
     Math.round(color.b * 255),
-    255
+    255,
   ];
 }
+
 function normaliseIds(value) {
   if (value == null) return [];
-  if (typeof value === "number" || typeof value === "string") return [Number(value)];
+  if (typeof value === 'number' || typeof value === 'string') return [Number(value)];
   return [...value].map(Number).filter(Number.isFinite);
 }
-function requiredElement(id) {
+
+function requiredElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
   if (!element) throw new Error(`Missing viewer element #${id}.`);
-  return element;
+  return element as T;
 }
-function node(tag, className, text) {
+
+function node<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className?: string | null,
+  text?: unknown,
+): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
   if (className) element.className = className;
-  if (text !== void 0 && text !== null) element.textContent = String(text);
+  if (text !== undefined && text !== null) element.textContent = String(text);
   return element;
 }
+
 function formatPropertyValue(value) {
-  if (value === null || value === void 0) return "\u2014";
-  return typeof value === "number" ? formatNumber(value) : String(value);
+  if (value === null || value === undefined) return '—';
+  return typeof value === 'number' ? formatNumber(value) : String(value);
 }
+
 function formatNumber(value) {
-  return new Intl.NumberFormat(void 0, { maximumFractionDigits: 6 }).format(value);
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(value);
 }
+
 function formatInteger(value) {
-  return new Intl.NumberFormat(void 0, { maximumFractionDigits: 0 }).format(Number(value) || 0);
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Number(value) || 0);
 }
+
 function niceGridSize(value) {
   const exponent = Math.floor(Math.log10(value));
   const fraction = value / 10 ** exponent;
   const nice = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
   return nice * 10 ** exponent;
 }
+
 function float32View(buffer, section) {
   return section.length ? new Float32Array(buffer, section.offset, section.length / 4) : new Float32Array();
 }
+
 function uint32View(buffer, section) {
   return section.length ? new Uint32Array(buffer, section.offset, section.length / 4) : new Uint32Array();
 }
+
 function uint8View(buffer, section) {
   return section.length ? new Uint8Array(buffer, section.offset, section.length) : new Uint8Array();
 }
+
 function align4(value) {
-  return value + 3 & ~3;
+  return (value + 3) & ~3;
 }
+
 function nextFrame() {
   return new Promise((resolve) => requestAnimationFrame(resolve));
 }

@@ -9,7 +9,7 @@ python -m ifcx.build_frontend
 python -m build
 ```
 
-The build uses esbuild and pins Three.js and three-mesh-bvh in
-`frontend/package.json`. End users do not need Node.js. A source checkout
+The TypeScript source is type-checked with `npm run typecheck`. The build uses
+esbuild and pins Three.js and three-mesh-bvh in `frontend/package.json`. End users do not need Node.js. A source checkout
 without the bundle can still run with `asset_mode="cdn"`; `asset_mode="auto"`
 uses the local bundle when it exists and otherwise selects that CDN fallback.

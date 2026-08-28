@@ -47,6 +47,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 ifcx = [
   "static/*.js",
+  "static/*.ts",
   "static/*.css",
   "static/*.map",
   "static/licenses/*.txt",

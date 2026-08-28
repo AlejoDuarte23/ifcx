@@ -34,6 +34,7 @@ Python package, so users do not need Node.js.
 ```bash
 uv sync --extra dev
 npm --prefix frontend install
+npm --prefix frontend run typecheck
 npm --prefix frontend run build
 uv run ruff format .
 uv run ruff check .
